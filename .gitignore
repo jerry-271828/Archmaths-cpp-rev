@@ -1,5 +1,7 @@
 # Build directories
 build/
+build-wasm/
+__pycache__/
 cmake-build-*/
 
 # IDE files

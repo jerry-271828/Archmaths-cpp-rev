@@ -80,10 +80,6 @@ GLCanvas::~GLCanvas() {
 void GLCanvas::initializeGL() {
     initializeOpenGLFunctions();
 
-    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
     vao_.create();
     vao_.bind();
 
@@ -287,6 +283,19 @@ void GLCanvas::resizeGL(int w, int h) {
 
 void GLCanvas::paintGL() {
     std::cerr << "paintGL called" << std::endl;
+
+    // Qt's WebGL compositor and QPainter reuse this context between frames.
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     if (is3DMode_) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

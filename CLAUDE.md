@@ -17,9 +17,9 @@ make -j$(nproc)
 # Run the application
 ./ArchMaths
 
-# WebAssembly build (requires Emscripten)
-emcmake cmake ..
-emmake make
+# WebAssembly build (Qt 6.5.3 wasm_singlethread + Emscripten 3.1.25)
+# See web/README.md; the script also patches the embedded font for CJK support.
+bash build-wasm.sh
 ```
 
 Requires C++17, Qt5/Qt6 (with OpenGLWidgets for Qt6), and OpenGL ES 2.0 (or desktop OpenGL on non-Android).

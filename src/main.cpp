@@ -1,7 +1,17 @@
 #include <QApplication>
+#ifdef WASM_BUILD
+#include <QSurfaceFormat>
+#endif
 #include "ui/MainWindow.h"
 
 int main(int argc, char* argv[]) {
+#ifdef WASM_BUILD
+    // The browser shaders use GLSL ES 3.00 and require a WebGL 2 context.
+    QSurfaceFormat format;
+    format.setRenderableType(QSurfaceFormat::OpenGLES);
+    format.setVersion(3, 0);
+    QSurfaceFormat::setDefaultFormat(format);
+#endif
     QApplication app(argc, argv);
 
     // 设置应用程序信息

@@ -350,24 +350,39 @@ jobs:
           pip install aqtinstall
           aqt install-qt linux desktop ${{ env.QT_WASM_VERSION }} wasm_singlethread -O ${{ runner.temp }}/qt-wasm
           echo "=== Installed Qt WASM modules ==="
-          ls -la ${{ runner.temp }}/qt-wasm/${{ env.QT_WASM_VERSION }}/wasm_singlethread/lib/cmake/ || true
+          ls -la ${{ runner.temp }}/qt-wasm/${{ env.QT_WASM_VERSION }}/wasm_singlethread/lib/cmake/
 
       - name: Build WASM
         run: |
           QT_HOST_PATH="${{ runner.temp }}/qt-host/Qt/${{ env.QT_WASM_VERSION }}/gcc_64"
           QT_WASM_PATH="${{ runner.temp }}/qt-wasm/${{ env.QT_WASM_VERSION }}/wasm_singlethread"
-          emcmake cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$QT_WASM_PATH" \
-            -DQT_HOST_PATH="$QT_HOST_PATH"
-          cmake --build build -j$(nproc)
+          EMSDK_PATH="$EMSDK" \
+          QT_WASM_PATH="$QT_WASM_PATH" \
+          QT_HOST_PATH="$QT_HOST_PATH" \
+            ./build-wasm.sh
 
       - name: Package WASM
         run: |
-          mkdir -p wasm-dist
-          cp build/ArchMaths.html wasm-dist/index.html 2>/dev/null || cp build/ArchMaths.html wasm-dist/ || true
-          cp build/ArchMaths.js build/ArchMaths.wasm wasm-dist/ 2>/dev/null || true
-          [ -f build/ArchMaths.data ] && cp build/ArchMaths.data wasm-dist/ || true
-          tar -czvf ArchMaths-WebAssembly.tar.gz -C wasm-dist .
+          tar -czvf ArchMaths-WebAssembly.tar.gz -C build-wasm/dist .
+
+      - name: Install browser smoke test dependencies
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run WASM browser smoke test
+        run: |
+          python web/test-wasm.py build-wasm/dist
+
+      - name: Upload WASM smoke-test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchMaths-WASM-smoke-failure
+          path: |
+            wasm-smoke-failure.png
+            wasm-smoke-failure.log
+          if-no-files-found: ignore
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

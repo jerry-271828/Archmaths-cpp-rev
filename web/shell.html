@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ArchMaths</title>
+    <link rel="icon" href="data:,">
     <style>
         body { margin: 0; overflow: hidden; background: #1a1a1a; }
-        #qtcanvas { width: 100vw; height: 100vh; display: block; }
+        #screen { width: 100vw; height: 100vh; }
         #loading {
             position: fixed;
             top: 50%;
@@ -15,6 +16,8 @@
             color: white;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             text-align: center;
+            z-index: 1;
+            max-width: 90vw;
         }
         #loading .spinner {
             width: 40px;
@@ -29,26 +32,174 @@
     </style>
 </head>
 <body>
-    <div id="loading">
+    <div id="loading" role="status">
         <div class="spinner"></div>
-        <div>Loading ArchMaths...</div>
+        <div id="status">Loading ArchMaths...</div>
     </div>
-    <canvas id="qtcanvas" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="screen"></div>
+    <noscript>Enable JavaScript to run ArchMaths.</noscript>
     <script>
-        var Module = {
-            canvas: (function() {
-                var canvas = document.getElementById('qtcanvas');
-                canvas.addEventListener('webglcontextlost', function(e) {
-                    alert('WebGL context lost. Please reload the page.');
-                    e.preventDefault();
-                }, false);
-                return canvas;
-            })(),
-            onRuntimeInitialized: function() {
-                document.getElementById('loading').style.display = 'none';
+        const loading = document.getElementById('loading');
+        const status = document.getElementById('status');
+        const screen = document.getElementById('screen');
+        let qtLoader;
+
+        // Keep DOM focus inside the Qt window before its pointer handler
+        // cancels the browser's default focus move. HarmonyOS also needs a
+        // native text control to receive text committed by its input method.
+        function installInputFix() {
+            const shadow = screen.shadowRoot;
+            if (!shadow)
+                return void setTimeout(installInputFix, 250);
+
+            const inputProxies = new WeakMap();
+            const proxyCanvases = new WeakMap();
+            const focusCanvas = event => {
+                const path = event.composedPath ? event.composedPath() : [];
+                const canvas = path.find(el => el && el.tagName === 'CANVAS')
+                    || shadow.querySelector('canvas');
+                if (canvas) {
+                    canvas.setAttribute('tabindex', '0');
+                    let target = canvas;
+                    // HarmonyOS delivers IME commits only to native text
+                    // controls, even when the canvas is contenteditable.
+                    if (/OHOS|HarmonyOS/i.test(navigator.platform)) {
+                        target = inputProxies.get(canvas);
+                        if (!target) {
+                            target = document.createElement('input');
+                            target.type = 'text';
+                            target.autocomplete = 'off';
+                            target.spellcheck = false;
+                            target.setAttribute('autocapitalize', 'off');
+                            target.setAttribute('aria-label', '表达式键盘输入');
+                            target.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+                            canvas.parentElement.appendChild(target);
+                            inputProxies.set(canvas, target);
+                            proxyCanvases.set(target, canvas);
+                        }
+                    }
+                    target.focus({ preventScroll: true });
+                }
+            };
+            shadow.addEventListener('pointerdown', focusCanvas, true);
+
+            // IMEs can send Process/229 instead of a printable keydown (also
+            // for Latin letters on HarmonyOS). Let the browser commit the
+            // text before passing it to Qt, which otherwise cancels that key.
+            const composing = new WeakSet();
+            const canvasFor = event => {
+                const target = event.composedPath()[0];
+                return proxyCanvases.get(target)
+                    || (target.tagName === 'CANVAS' ? target : null);
+            };
+            const clearInput = canvas => {
+                const proxy = inputProxies.get(canvas);
+                if (proxy) proxy.value = '';
+                canvas.textContent = '';
+            };
+            const sendText = (canvas, text) => {
+                for (const key of text || '') {
+                    for (const type of ['keydown', 'keyup']) {
+                        canvas.dispatchEvent(new KeyboardEvent(type, {
+                            key, bubbles: true, cancelable: true, composed: true
+                        }));
+                    }
+                }
+            };
+            const deferToInputMethod = event => {
+                const canvas = canvasFor(event);
+                if (canvas && (event.isComposing || composing.has(canvas)
+                    || event.key === 'Process' || event.keyCode === 229)) {
+                    event.stopPropagation();
+                }
+            };
+            shadow.addEventListener('keydown', deferToInputMethod, true);
+            shadow.addEventListener('keyup', deferToInputMethod, true);
+            shadow.addEventListener('compositionstart', event => {
+                const canvas = canvasFor(event);
+                if (canvas) composing.add(canvas);
+            }, true);
+            shadow.addEventListener('compositionend', event => {
+                const canvas = canvasFor(event);
+                if (!canvas) return;
+                composing.delete(canvas);
+                sendText(canvas, event.data);
+                clearInput(canvas);
+            }, true);
+            shadow.addEventListener('beforeinput', event => {
+                const canvas = canvasFor(event);
+                if (!canvas || composing.has(canvas) || event.isComposing
+                    || event.inputType !== 'insertText' || !event.cancelable) return;
+                event.preventDefault();
+                event.stopPropagation();
+                sendText(canvas, event.data);
+            }, true);
+            shadow.addEventListener('input', event => {
+                const canvas = canvasFor(event);
+                if (!canvas || composing.has(canvas) || event.isComposing) return;
+                if (event.inputType === 'insertText') sendText(canvas, event.data);
+                clearInput(canvas);
+            }, true);
+        }
+
+        function showError(error) {
+            loading.style.display = 'block';
+            loading.querySelector('.spinner').style.display = 'none';
+            status.textContent = 'Unable to start ArchMaths: ' + error;
+        }
+
+        function showReady() {
+            loading.style.display = 'none';
+            installInputFix();
+        }
+
+        window.addEventListener('load', async function() {
+            if (location.protocol === 'file:') {
+                showError('Serve this directory over HTTP, then open the page in your browser.');
+                return;
             }
-        };
+
+            try {
+                if (typeof qtLoad === 'function') {
+                    // Qt 6.6+ loads the application script before calling qtLoad.
+                    await new Promise(function(resolve, reject) {
+                        const script = document.createElement('script');
+                        script.src = '@APPNAME@.js';
+                        script.onload = resolve;
+                        script.onerror = () => reject(new Error('Could not load @APPNAME@.js'));
+                        document.head.appendChild(script);
+                    });
+                    await qtLoad({
+                        qt: {
+                            entryFunction: window['@APPNAME@_entry'] || window.createQtAppInstance,
+                            containerElements: [screen],
+                            onLoaded: showReady,
+                            onExit: data => showError(data.text || ('Application exited (' + data.code + ')'))
+                        }
+                    });
+                } else if (typeof QtLoader === 'function') {
+                    // Qt 6.5 fetches and instantiates the application through QtLoader.
+                    qtLoader = QtLoader({
+                        containerElements: [screen],
+                        moduleConfig: { onAbort: showError },
+                        showLoader: message => { status.textContent = message + '...'; },
+                        showCanvas: showReady,
+                        showError: error => {
+                            showError(error);
+                            // Qt 6.5 appends this callback's returned node to the container.
+                            return document.createDocumentFragment();
+                        },
+                        showExit: () => showError(qtLoader.exitText || ('Application exited (' + qtLoader.exitCode + ')'))
+                    });
+                    qtLoader.loadEmscriptenModule('@APPNAME@');
+                } else {
+                    throw new Error('Could not load qtloader.js');
+                }
+            } catch (error) {
+                showError(error.message || String(error));
+            }
+        });
     </script>
-    {{{ SCRIPT }}}
+    <script src="qtloader.js"></script>
 </body>
 </html>

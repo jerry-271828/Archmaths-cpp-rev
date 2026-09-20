@@ -18,7 +18,6 @@ endif()
 # WebAssembly/Emscripten detection
 if(EMSCRIPTEN)
     message(STATUS "Building for WebAssembly (WebGL 2.0)")
-    set(CMAKE_EXECUTABLE_SUFFIX ".html")
     add_definitions(-DUSE_GLES -DWASM_BUILD)
     set(USE_GLES TRUE)
     set(GL_LIBRARIES "")
@@ -164,19 +163,20 @@ set(RESOURCES
     resources/resources.qrc
 )
 
-# Emscripten linker flags for WebAssembly
+# Qt finalization exports the runtime helpers used by the WASM platform plugin
+# and copies the matching Qt loader into the build directory.
 if(EMSCRIPTEN)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
-        -s USE_WEBGL2=1 \
-        -s FULL_ES3=1 \
-        -s ALLOW_MEMORY_GROWTH=1 \
-        -s ASYNCIFY=1 \
-        -s EXPORTED_FUNCTIONS=['_main'] \
-        --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html")
+    qt_add_executable(${PROJECT_NAME} MANUAL_FINALIZATION ${SOURCES} ${HEADERS} ${RESOURCES})
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "SHELL:-s MIN_WEBGL_VERSION=2"
+        "SHELL:-s MAX_WEBGL_VERSION=2"
+        "SHELL:-s FULL_ES3=1"
+        "SHELL:-s ALLOW_MEMORY_GROWTH=1"
+        "SHELL:-s ASYNCIFY=1"
+    )
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} ${RESOURCES})
 endif()
-
-# 创建可执行文件
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} ${RESOURCES})
 
 # 包含目录
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -195,6 +195,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         -O3
         -ffast-math
     )
+endif()
+
+if(EMSCRIPTEN)
+    qt_finalize_executable(${PROJECT_NAME})
+    set(APPNAME "${PROJECT_NAME}")
+    configure_file(web/shell.html "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.html" @ONLY)
 endif()
 
 # 安装规则
