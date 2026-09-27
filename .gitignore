@@ -1,6 +1,8 @@
 # Build directories
 build/
 build-wasm/
+wasm/build/
+wasm/dist/
 __pycache__/
 cmake-build-*/
 

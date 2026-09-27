@@ -7,9 +7,11 @@
 
 namespace ArchMaths {
 
+// Errors are reported through hasError()/getError() rather than exceptions so
+// the same parser also builds for the exception-free WebAssembly core.
 class ExpressionParser {
 public:
-    ExpressionParser();
+    explicit ExpressionParser(Tokenizer::Dialect dialect = Tokenizer::Dialect::Math);
 
     // 解析表达式字符串，返回AST
     ExprNodePtr parse(const std::string& expression);
@@ -40,6 +42,8 @@ private:
     Token nextToken();
     bool match(TokenType type);
     bool expect(TokenType type, const std::string& errorMsg);
+    ExprNodePtr fail(const std::string& errorMsg);
+    bool isJsSubset() const { return tokenizer_.dialect() == Tokenizer::Dialect::JsSubset; }
 
     Tokenizer tokenizer_;
     std::vector<Token> tokens_;
